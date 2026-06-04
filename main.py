@@ -8,6 +8,7 @@ import threading
 import time
 from html import escape, unescape
 from html.parser import HTMLParser
+from datetime import datetime
 import requests
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from linebot.v3 import WebhookHandler
@@ -86,7 +87,7 @@ TRAVEL_SYSTEM_INSTRUCTION = (
     "2. 【四大元素與 Google 地圖 URL 的結構約束】：\n"
     "   在生成的行程網頁中，每一天的行程必須條理分明地包含以下內容。不要使用 `<md-list>` 或 `<md-list-item>`，請改用穩定的普通 HTML，例如 `<div class='itinerary-list'>` 與 `<div class='itinerary-item'>`，並把時間、標題、說明、地圖連結都放在可直接顯示的元素中。\n"
     "   * 【行程/時間軸】：每個行程項目要有明確時間標題（如 09:00 - 11:00）。\n"
-    "   * 【景點】：必須使用 Material Icon `<span class='material-icons' slot='start'>place</span>` 標註，且『每一個景點』下方都必須附上對應的 Google 地圖搜尋 URL，連結格式嚴格限制為：<a class='map-link' href='https://www.google.com/maps/search/?api=1&query=Time+Out+Market+Lisboa2'><span class='material-icons'>map</span>查看地圖</a>（請將店名與區域正確編碼）。\n"
+    "   * 【景點】：必須使用 Material Icon `<span class='material-icons' slot='start'>place</span>` 標註，且『每一個景點』下方都必須附上對應的 Google 地圖搜尋 URL，連結格式嚴格限制為：<a class='map-link' target='_blank' rel='noopener noreferrer' href='https://www.google.com/maps/search/?api=1&query=Time+Out+Market+Lisboa2'><span class='material-icons'>map</span>查看地圖</a>（請將店名與區域正確編碼）。\n"
     "   * 【交通】：必須使用 `<span class='material-icons' slot='start'>directions_car</span>` 或 `train` 等圖標，明確註明景點之間的移動方式（如：步行 10 分鐘或搭乘捷運板南線）。\n"
     "   * 【美食】：必須使用 `<span class='material-icons' slot='start'>restaurant</span>` 圖標標註周邊推薦的午晚餐或下午茶，且『每一間餐廳』下方也必須附上對應的 Google 地圖搜尋 URL 連結，格式同上。\n\n"
     "3. 【配色與純文字 HTML 規範】：\n"
@@ -326,17 +327,59 @@ def normalize_material_lists(html_content: str) -> str:
 def inject_itinerary_fallback_css(html_content: str) -> str:
     css = (
         "<style>"
-        ".itinerary-list{display:flex;flex-direction:column;gap:12px;margin-top:12px;}"
-        ".itinerary-item{display:grid;grid-template-columns:32px minmax(0,1fr);gap:12px;align-items:start;padding:12px 0;border-bottom:1px solid rgba(0,0,0,.08);}"
+        ".itinerary-list{display:flex;flex-direction:column;gap:0;margin-top:14px;}"
+        ".itinerary-item{display:grid;grid-template-columns:minmax(88px,112px) minmax(0,1fr);column-gap:16px;row-gap:6px;align-items:start;padding:16px 0;border-bottom:1px solid rgba(0,0,0,.08);writing-mode:horizontal-tb;word-break:normal;overflow-wrap:anywhere;}"
         ".itinerary-item:last-child{border-bottom:0;}"
+        ".itinerary-item>.time{grid-column:1;grid-row:1 / span 4;font-weight:700;color:#6750A4;line-height:1.45;white-space:normal;margin:0;}"
+        ".itinerary-item>.title{grid-column:2;display:flex;align-items:center;gap:6px;margin:0;color:#1f1f1f;font-weight:700;font-size:1.05rem;line-height:1.5;min-width:0;}"
+        ".itinerary-item>.desc{grid-column:2;margin:0;color:#444;line-height:1.65;min-width:0;}"
+        ".itinerary-item>.map-link{grid-column:2;margin:2px 12px 0 0;justify-self:start;}"
+        ".itinerary-item .material-icons{font-size:22px;line-height:1;color:#6750A4;flex:0 0 auto;}"
+        ".item-icon{grid-column:1;grid-row:1 / span 4;width:32px;}"
         ".item-icon .material-icons{font-size:24px;color:#6750A4;line-height:1;}"
-        ".item-title{font-weight:700;color:#1f1f1f;margin-bottom:6px;line-height:1.5;}"
+        ".item-main{grid-column:2;min-width:0;line-height:1.6;}"
+        ".item-title{font-weight:700;color:#1f1f1f;margin:0 0 6px;line-height:1.5;}"
         ".item-supporting{color:#444;margin:4px 0;line-height:1.6;}"
-        ".item-main{min-width:0;line-height:1.6;}"
-        ".item-main .map-link{margin-right:12px;margin-bottom:4px;}"
+        ".item-main .map-link{margin:2px 12px 4px 0;}"
+        ".map-link{white-space:normal;}"
+        ".generated-date-footer{max-width:960px;margin:32px auto 8px;padding:16px;color:#666;text-align:center;font-size:.9rem;}"
+        "@media(max-width:640px){.itinerary-item{grid-template-columns:1fr;row-gap:8px;}.itinerary-item>.time,.itinerary-item>.title,.itinerary-item>.desc,.itinerary-item>.map-link,.item-icon,.item-main{grid-column:1;grid-row:auto;}.item-icon{width:auto;}}"
         "</style>"
     )
     return re.sub(r"(</head>)", css + r"\1", html_content, count=1, flags=re.IGNORECASE)
+
+def ensure_map_links_open_new_tab(html_content: str) -> str:
+    def update_anchor(match):
+        attrs = match.group(1)
+        if not re.search(r"\bclass\s*=\s*(['\"])[^'\"]*\bmap-link\b[^'\"]*\1", attrs, flags=re.IGNORECASE):
+            return match.group(0)
+        if not re.search(r"\btarget\s*=", attrs, flags=re.IGNORECASE):
+            attrs += ' target="_blank"'
+        if re.search(r"\brel\s*=", attrs, flags=re.IGNORECASE):
+            attrs = re.sub(
+                r"\brel\s*=\s*(['\"])[^'\"]*\1",
+                'rel="noopener noreferrer"',
+                attrs,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+        else:
+            attrs += ' rel="noopener noreferrer"'
+        return f"<a{attrs}>"
+
+    return re.sub(r"<a\b([^>]*)>", update_anchor, html_content, flags=re.IGNORECASE | re.DOTALL)
+
+def inject_generated_date_footer(html_content: str) -> str:
+    generated_date = datetime.now().strftime("%Y-%m-%d")
+    footer_html = (
+        "\n<footer class='generated-date-footer'>"
+        f"<div>生成日期：{generated_date}</div>"
+        "<div>Website Designed &amp; Developed by Gemini and Netlify</div>"
+        "</footer>\n"
+    )
+    if not re.search(r"</body>", html_content, flags=re.IGNORECASE):
+        raise ValueError("HTML 缺少 </body> 區塊")
+    return re.sub(r"</body>", footer_html + "</body>", html_content, count=1, flags=re.IGNORECASE)
 
 def validate_html_is_safe(html_content: str):
     validator = StrictTravelHtmlValidator()
@@ -364,6 +407,8 @@ def validate_html_is_safe(html_content: str):
 def sanitize_generated_html(raw_content: str) -> str:
     html_content = extract_html(raw_content)
     html_content = normalize_material_lists(html_content)
+    html_content = ensure_map_links_open_new_tab(html_content)
+    html_content = inject_generated_date_footer(html_content)
     html_content = inject_itinerary_fallback_css(html_content)
     html_content = inject_csp(html_content)
     validate_html_is_safe(html_content)
