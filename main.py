@@ -9,6 +9,7 @@ import time
 from html import escape, unescape
 from html.parser import HTMLParser
 from datetime import datetime
+from urllib.parse import quote, urlparse
 import requests
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
 from linebot.v3 import WebhookHandler
@@ -372,6 +373,14 @@ def normalize_day_badge_text(html_content: str) -> str:
 
     return re.sub(r"\bDAY\s*(\d+)\s*[：:]", replace_day, html_content, flags=re.IGNORECASE)
 
+def remove_invalid_item_title_tags(html_content: str) -> str:
+    return re.sub(
+        r"\s*<item-title\b[^>]*>.*?</item-title>\s*",
+        "",
+        html_content,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+
 def inject_itinerary_fallback_css(html_content: str) -> str:
     css = (
         "<style>"
@@ -457,6 +466,7 @@ def sanitize_generated_html(raw_content: str) -> str:
     html_content = remove_disallowed_scripts(html_content)
     html_content = normalize_material_lists(html_content)
     html_content = normalize_itinerary_structure(html_content)
+    html_content = remove_invalid_item_title_tags(html_content)
     html_content = normalize_day_badge_text(html_content)
     html_content = ensure_map_links_open_new_tab(html_content)
     html_content = inject_generated_date_footer(html_content)
@@ -526,7 +536,16 @@ def split_line_messages(text: str) -> list[TextMessage]:
 
 RESET_COMMANDS = {"重置", "新行程", "reset"}
 GENERATE_COMMANDS = {"生成網頁", "確認行程", "打包網頁"}
+GENERATE_NEW_PAGE_COMMANDS = {"生成新網頁"}
+UPDATE_EXISTING_PAGE_COMMAND = "修改舊網頁"
 DEDUP_TTL_SECONDS = 600
+
+def is_update_existing_page_command(text: str) -> bool:
+    return text.strip().startswith(UPDATE_EXISTING_PAGE_COMMAND)
+
+def extract_first_url(text: str) -> str:
+    url_match = re.search(r"https?://[^\s<>]+", text or "")
+    return url_match.group(0).rstrip(".,;，。；") if url_match else ""
 
 def get_line_target_id(event: MessageEvent) -> str:
     source = event.source
@@ -558,7 +577,12 @@ def strip_bot_trigger(text: str) -> str:
 
 def is_bot_triggered(event: MessageEvent, text: str) -> bool:
     stripped_text = text.strip()
-    if stripped_text in RESET_COMMANDS or stripped_text in GENERATE_COMMANDS:
+    if (
+        stripped_text in RESET_COMMANDS
+        or stripped_text in GENERATE_COMMANDS
+        or stripped_text in GENERATE_NEW_PAGE_COMMANDS
+        or is_update_existing_page_command(stripped_text)
+    ):
         return True
     if event_mentions_bot(event):
         return True
@@ -640,6 +664,23 @@ def process_user_text(user_id: str, target_id: str, user_message: str, send_resp
         return
 
     # --- 階段 A：使用者決定定稿，生成網頁 ---
+    if user_message.strip() in GENERATE_NEW_PAGE_COMMANDS:
+        logger.info(f"使用者 {user_id} 觸發 Material 3 新網頁定稿生成...")
+        send_response("收到，我正在整理行程並生成新的 Netlify 網頁。完成後會直接把連結傳給你。")
+        generate_and_push_itinerary_page(user_id, target_id, force_new_site=True)
+        return
+
+    if is_update_existing_page_command(user_message):
+        existing_page_url = extract_first_url(user_message)
+        if not existing_page_url:
+            send_response("請在「修改舊網頁」後面貼上既有 Netlify 網址，例如：\n修改舊網頁 https://your-site.netlify.app/")
+            return
+
+        logger.info(f"使用者 {user_id} 觸發既有 Netlify 網頁更新: {existing_page_url}")
+        send_response("收到，我會用這次行程內容覆蓋你貼的既有 Netlify 頁面。完成後會把更新後連結傳給你。")
+        generate_and_push_itinerary_page(user_id, target_id, existing_page_url=existing_page_url)
+        return
+
     if user_message.strip() in GENERATE_COMMANDS:
         logger.info(f"使用者 {user_id} 觸發 Material 3 網頁定稿生成...")
         send_response("收到，我正在整理行程並生成網頁。完成後會直接把 Netlify 連結傳給你。")
@@ -659,7 +700,7 @@ def process_user_text(user_id: str, target_id: str, user_message: str, send_resp
         "\n\n"
         "━━━━━━━━━━━━━━━━━━\n"
         "*【導遊提示】*\n"
-        "如果目前的行程內容你很滿意，隨時對我打 **「確認行程」** 或 **「生成網頁」**，我會立刻打包成 Material 3 排版的專屬行程網頁。"
+        "如果目前的行程內容你很滿意，可以輸入 **「生成新網頁」** 建立新的 Netlify 頁面；或輸入 **「修改舊網頁 既有網址」** 覆蓋已存在的頁面。"
     )
 
     # 組裝最終回傳給 Line 的訊息
@@ -737,7 +778,12 @@ def generate_itinerary_html(user_id: str) -> str:
         logger.exception(f"Gemini HTML generation error: {e}")
         return ""
 
-def generate_and_push_itinerary_page(user_id: str, target_id: str):
+def generate_and_push_itinerary_page(
+    user_id: str,
+    target_id: str,
+    existing_page_url: str = "",
+    force_new_site: bool = False,
+):
     raw_html = generate_itinerary_html(user_id)
     if not raw_html:
         send_line_push(target_id, "目前沒有足夠的行程內容可以生成網頁，請先告訴我目的地、天數與偏好。")
@@ -750,20 +796,29 @@ def generate_and_push_itinerary_page(user_id: str, target_id: str):
         send_line_push(target_id, "網頁內容沒有通過安全檢查，所以我沒有部署。請再輸入「生成網頁」讓我重新產生一次。")
         return
 
-    netlify_url = deploy_html_to_netlify(html_code)
+    netlify_url = deploy_html_to_netlify(
+        html_code,
+        existing_page_url=existing_page_url,
+        force_new_site=force_new_site,
+    )
 
     if netlify_url:
+        action_text = "已更新" if existing_page_url else "已製作完成"
         push_text = (
-            "你的 Material 3 旅遊行程網頁已製作完成。\n\n"
-            "本導遊已經幫你套用 Google 官方設計元件，並自動託管上線囉！點擊下方連結即可查看：\n"
+            f"你的 Material 3 旅遊行程網頁{action_text}。\n\n"
+            "本導遊已經幫你套用 Google 官方設計元件，並完成 Netlify 部署。點擊下方連結即可查看：\n"
             f"{netlify_url}"
         )
     else:
-        push_text = "網頁生成或 Netlify 部署失敗，請稍後再輸入「生成網頁」試一次。"
+        push_text = "網頁生成或 Netlify 部署失敗，請稍後再輸入「生成新網頁」或「修改舊網頁 既有網址」試一次。"
 
     send_line_push(target_id, push_text)
 
-def deploy_html_to_netlify(html_content: str) -> str:
+def deploy_html_to_netlify(
+    html_content: str,
+    existing_page_url: str = "",
+    force_new_site: bool = False,
+) -> str:
     try:
         if not NETLIFY_AUTH_TOKEN:
             logger.error("缺少 NETLIFY_AUTH_TOKEN 環境變數")
@@ -784,7 +839,14 @@ def deploy_html_to_netlify(html_content: str) -> str:
         zip_binary_data = zip_buffer.getvalue()
 
         logger.info("正在發送 M3 HTML 至 Netlify API...")
-        site_id = NETLIFY_SITE_ID or create_netlify_site()
+        site_id = ""
+        if existing_page_url:
+            site_id = get_netlify_site_id_from_url(existing_page_url)
+            if not site_id:
+                return ""
+        elif not force_new_site:
+            site_id = NETLIFY_SITE_ID
+        site_id = site_id or create_netlify_site()
         if not site_id:
             return ""
 
@@ -804,6 +866,30 @@ def get_netlify_headers(content_type: str = "application/json") -> dict:
         "Content-Type": content_type,
         "User-Agent": "line-travel-bot"
     }
+
+def get_netlify_site_id_from_url(page_url: str) -> str:
+    parsed_url = urlparse(page_url.strip())
+    domain = parsed_url.netloc.lower()
+    if not domain:
+        logger.error(f"無法從網址取得 Netlify domain: {page_url}")
+        return ""
+
+    response = requests.get(
+        f"https://api.netlify.com/api/v1/sites/{quote(domain, safe='')}",
+        headers=get_netlify_headers(),
+        timeout=15,
+    )
+
+    if response.status_code != 200:
+        logger.error(f"Netlify get site error: {response.status_code} - {response.text}")
+        return ""
+
+    site = response.json()
+    site_id = site.get("id")
+    if not site_id:
+        logger.error(f"Netlify get site response missing id: {site}")
+        return ""
+    return site_id
 
 def create_netlify_site() -> str:
     site_name = f"line-travel-{int(time.time())}-{uuid.uuid4().hex[:8]}"
