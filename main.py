@@ -72,24 +72,36 @@ TRAVEL_SYSTEM_INSTRUCTION = (
     "【LINE 對話回覆規範】：\n"
     "一般對話請盡量精簡，優先給重點、條列與可執行建議。不要使用 emoji 或顏文字。\n\n"
     "【最終網頁定稿 HTML 生成規範】：\n"
-    "當使用者輸入『生成網頁』或『確認行程』時，代表這是最終定稿。你必須將這幾天討論好的完整行程，『完全轉化為標準的 HTML 原始碼』回傳，不要使用 emoji 或顏文字，並嚴格遵循以下 Google 官方 Material 3 視覺美學規範：\n\n"
+    "當使用者輸入『生成網頁』或『確認行程』時，代表這是最終定稿。HTML 原始碼只供後端部署使用，不要在一般 LINE 對話中解釋或展示 HTML。你必須將這幾天討論好的完整行程，『完全轉化為標準的 HTML 原始碼』回傳，不要使用 emoji 或顏文字，並嚴格遵循以下 Google 官方 Material 3 視覺美學規範：\n\n"
     "1. 【引入 Material 3 設計元件庫與 Material Icons】：\n"
-    "   請務必在 HTML <head> 區塊內引入以下 Web Components 腳本、字體與圖標庫：\n"
-    "   <script type='module' src='https://esm.run/@material/web/all.js'></script>\n"
+    "   請務必在 HTML <head> 區塊內引入以下字體與圖標庫。不要輸出任何 `<script>` 標籤：\n"
     "   <link href='https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Noto+Sans+TC:wght@400;500;700&display=swap' rel='stylesheet'>\n"
     "   <link href='https://fonts.googleapis.com/icon?family=Material+Icons' rel='stylesheet'>\n"
     "   <style>\n"
+    "     :root { --md-sys-color-primary: #6750A4; --md-sys-color-on-primary: #FFFFFF; --md-sys-color-primary-container: #E8DEF8; --md-sys-color-on-primary-container: #21005D; }\n"
     "     body { font-family: 'Roboto', 'Noto Sans TC', sans-serif; background-color: #f4f5f7; margin: 0; padding: 16px; }\n"
-    "     .day-card { background: white; border-radius: 16px; padding: 16px; margin-bottom: 24px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); }\n"
-    "     .map-link { color: #6750A4; text-decoration: none; font-weight: bold; display: inline-flex; align-items: center; margin-top: 4px; }\n"
+    "     .container { max-width: 600px; width: 100%; margin: 0 auto; }\n"
+    "     .banner { background-color: var(--md-sys-color-primary); color: var(--md-sys-color-on-primary); padding: 32px 22px; border-radius: 16px; margin-bottom: 24px; text-align: center; box-shadow: 0 6px 16px rgba(103, 80, 164, 0.22); }\n"
+    "     .banner h1 { margin: 0; font-size: 28px; font-weight: 700; }\n"
+    "     .banner p { margin: 10px 0 0; opacity: .9; font-size: 15px; }\n"
+    "     .day-card { background: white; border-radius: 20px; padding: 22px; margin-bottom: 24px; box-shadow: 0 4px 16px rgba(0,0,0,0.04); border: 1px solid rgba(0,0,0,0.02); }\n"
+    "     .day-badge { display: inline-flex; align-items: center; gap: 6px; background: var(--md-sys-color-primary-container); color: var(--md-sys-color-on-primary-container); padding: 6px 16px; border-radius: 24px; font-weight: 700; font-size: 14px; margin-bottom: 20px; }\n"
+    "     .timeline-item { border-left: 3px solid var(--md-sys-color-primary-container); padding-left: 20px; margin-bottom: 24px; position: relative; }\n"
+    "     .time-tag { font-weight: 700; color: var(--md-sys-color-primary); font-size: 14px; margin-bottom: 6px; }\n"
+    "     .item-title { font-size: 17px; font-weight: 700; display: flex; align-items: center; color: #1C1B1F; gap: 6px; }\n"
+    "     .item-desc { font-size: 14px; color: #49454F; margin-top: 6px; line-height: 1.5; }\n"
+    "     .map-link { color: var(--md-sys-color-primary); text-decoration: none; font-weight: 700; font-size: 13px; display: inline-flex; align-items: center; margin-top: 8px; padding: 4px 0; gap: 4px; }\n"
     "     .map-link span { font-size: 16px; margin-right: 4px; }\n"
     "   </style>\n\n"
-    "2. 【四大元素與 Google 地圖 URL 的結構約束】：\n"
-    "   在生成的行程網頁中，每一天的行程必須條理分明地包含以下內容。不要使用 `<md-list>` 或 `<md-list-item>`，請改用穩定的普通 HTML，例如 `<div class='itinerary-list'>` 與 `<div class='itinerary-item'>`，並把時間、標題、說明、地圖連結都放在可直接顯示的元素中。\n"
-    "   * 【行程/時間軸】：每個行程項目要有明確時間標題（如 09:00 - 11:00）。\n"
-    "   * 【景點】：必須使用 Material Icon `<span class='material-icons' slot='start'>place</span>` 標註，且『每一個景點』下方都必須附上對應的 Google 地圖搜尋 URL，連結格式嚴格限制為：<a class='map-link' target='_blank' rel='noopener noreferrer' href='https://www.google.com/maps/search/?api=1&query=Time+Out+Market+Lisboa2'><span class='material-icons'>map</span>查看地圖</a>（請將店名與區域正確編碼）。\n"
-    "   * 【交通】：必須使用 `<span class='material-icons' slot='start'>directions_car</span>` 或 `train` 等圖標，明確註明景點之間的移動方式（如：步行 10 分鐘或搭乘捷運板南線）。\n"
-    "   * 【美食】：必須使用 `<span class='material-icons' slot='start'>restaurant</span>` 圖標標註周邊推薦的午晚餐或下午茶，且『每一間餐廳』下方也必須附上對應的 Google 地圖搜尋 URL 連結，格式同上。\n\n"
+    "2. 【標題與內容結構】：\n"
+    "   網頁最上方必須有 `<div class='banner'>`。banner 的 `<h1>` 格式為「Gemini 自己發想的 4-8 字詩意主題 + ・ + 行程氣質短句」，例如「洄瀾山海・慢活時光」。banner 的 `<p>` 必須包含使用者提到的地點與時間，例如「花蓮 3 天 2 夜深度自駕提案」。\n"
+    "   每一天使用 `<div class='day-card'>`，開頭用 `<div class='day-badge'><span class='material-icons'>calendar_today</span>第一天：Gemini 發想的當日主題</div>`。day badge 文字必須固定為「第幾天：當日主題」，不要使用 DAY 1。\n"
+    "   每一天內容固定輸出三類區塊，順序為：時間軸、交通提示、美食推薦。每個區塊都用 `<div class='timeline-item'>`，內含 `<div class='time-tag'>`、`<div class='item-title'><span class='material-icons'>...</span>標題</div>`、`<div class='item-desc'>文字敘述</div>`。\n"
+    "   * 【時間軸】：`time-tag` 放明確時間（如 10:00 - 12:00），`item-title` 放景點/活動標題，`item-desc` 放體驗描述。\n"
+    "   * 【交通提示】：`time-tag` 寫「交通提示」，`item-title` 放交通方式標題（如 自駕 / 租車前往），`item-desc` 放路線與時間。\n"
+    "   * 【美食推薦】：`time-tag` 寫「美食推薦」，`item-title` 放餐廳/小吃標題，`item-desc` 放推薦原因。\n"
+    "   景點與美食推薦下方必須附上 Google 地圖搜尋 URL，連結格式嚴格限制為：<a class='map-link' target='_blank' rel='noopener noreferrer' href='https://www.google.com/maps/search/?api=1&query=Time+Out+Market+Lisboa2'><span class='material-icons'>map</span>查看地圖導航</a>（請將店名與區域正確編碼）。\n"
+    "   不要使用 `<md-list>` 或 `<md-list-item>`。\n\n"
     "3. 【配色與純文字 HTML 規範】：\n"
     "   主色調使用 Material 3 沉穩的深藍/深紫（Primary: `#6750A4`），背景為淺灰。不要將 HTML 包裹在 Markdown 的 ```html 區塊內，不要放在 <pre> 標籤內，不要輸出 escaped HTML（例如 &lt;html&gt;），直接輸出可由瀏覽器渲染的完整 HTML 原始碼即可。"
 )
@@ -97,7 +109,7 @@ TRAVEL_SYSTEM_INSTRUCTION = (
 CSP_META_TAG = (
     '<meta http-equiv="Content-Security-Policy" content="'
     "default-src 'none'; "
-    "script-src https://esm.run; "
+    "script-src 'none'; "
     "style-src 'unsafe-inline' https://fonts.googleapis.com; "
     "font-src https://fonts.gstatic.com; "
     "img-src https:; "
@@ -167,12 +179,7 @@ class StrictTravelHtmlValidator(HTMLParser):
                 self._validate_url_attr(tag, name, value, value_lower)
 
         if tag == "script":
-            src = attr_map.get("src", "").strip()
-            script_type = attr_map.get("type", "").strip().lower()
-            if src == ALLOWED_MATERIAL_SCRIPT and script_type in {"module", ""}:
-                self.has_material_script = True
-            else:
-                self.errors.append("只允許載入 Material Web 的外部 module script")
+            self.errors.append("不允許使用 script 標籤")
 
         if tag == "meta" and attr_map.get("http-equiv", "").lower() == "refresh":
             self.errors.append("不允許使用 meta refresh")
@@ -324,26 +331,70 @@ def normalize_material_lists(html_content: str) -> str:
     html_content = re.sub(r"<md-list(?=[\s>])[^>]*>", "<div class='itinerary-list'>", html_content, flags=re.IGNORECASE)
     return re.sub(r"</md-list>", "</div>", html_content, flags=re.IGNORECASE)
 
+def normalize_itinerary_structure(html_content: str) -> str:
+    html_content = re.sub(
+        r"<h2>(.*?)</h2>",
+        r"<div class='day-badge'><span class='material-icons'>calendar_today</span>\1</div>",
+        html_content,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    html_content = re.sub(r"\bitinerary-item\b", "timeline-item", html_content, flags=re.IGNORECASE)
+    html_content = re.sub(r"\btime\b", "time-tag", html_content, flags=re.IGNORECASE)
+    html_content = re.sub(r"\btitle\b", "item-title", html_content, flags=re.IGNORECASE)
+    html_content = re.sub(r"\bdesc\b", "item-desc", html_content, flags=re.IGNORECASE)
+    html_content = re.sub(r"\bmap-btn\b", "map-link", html_content, flags=re.IGNORECASE)
+
+    if "class=\"container\"" not in html_content and "class='container'" not in html_content:
+        html_content = re.sub(r"<body\b([^>]*)>", r"<body\1><div class='container'>", html_content, count=1, flags=re.IGNORECASE)
+        html_content = re.sub(r"</body>", r"</div></body>", html_content, count=1, flags=re.IGNORECASE)
+    return html_content
+
+def remove_disallowed_scripts(html_content: str) -> str:
+    return re.sub(r"<script\b[^>]*>.*?</script>", "", html_content, flags=re.IGNORECASE | re.DOTALL)
+
+def normalize_day_badge_text(html_content: str) -> str:
+    day_names = {
+        "1": "第一天",
+        "2": "第二天",
+        "3": "第三天",
+        "4": "第四天",
+        "5": "第五天",
+        "6": "第六天",
+        "7": "第七天",
+        "8": "第八天",
+        "9": "第九天",
+        "10": "第十天",
+    }
+
+    def replace_day(match):
+        day_name = day_names.get(match.group(1), f"第{match.group(1)}天")
+        return f"{day_name}："
+
+    return re.sub(r"\bDAY\s*(\d+)\s*[：:]", replace_day, html_content, flags=re.IGNORECASE)
+
 def inject_itinerary_fallback_css(html_content: str) -> str:
     css = (
         "<style>"
-        ".itinerary-list{display:flex;flex-direction:column;gap:0;margin-top:14px;}"
-        ".itinerary-item{display:grid;grid-template-columns:minmax(88px,112px) minmax(0,1fr);column-gap:16px;row-gap:6px;align-items:start;padding:16px 0;border-bottom:1px solid rgba(0,0,0,.08);writing-mode:horizontal-tb;word-break:normal;overflow-wrap:anywhere;}"
-        ".itinerary-item:last-child{border-bottom:0;}"
-        ".itinerary-item>.time{grid-column:1;grid-row:1 / span 4;font-weight:700;color:#6750A4;line-height:1.45;white-space:normal;margin:0;}"
-        ".itinerary-item>.title{grid-column:2;display:flex;align-items:center;gap:6px;margin:0;color:#1f1f1f;font-weight:700;font-size:1.05rem;line-height:1.5;min-width:0;}"
-        ".itinerary-item>.desc{grid-column:2;margin:0;color:#444;line-height:1.65;min-width:0;}"
-        ".itinerary-item>.map-link{grid-column:2;margin:2px 12px 0 0;justify-self:start;}"
-        ".itinerary-item .material-icons{font-size:22px;line-height:1;color:#6750A4;flex:0 0 auto;}"
-        ".item-icon{grid-column:1;grid-row:1 / span 4;width:32px;}"
-        ".item-icon .material-icons{font-size:24px;color:#6750A4;line-height:1;}"
-        ".item-main{grid-column:2;min-width:0;line-height:1.6;}"
-        ".item-title{font-weight:700;color:#1f1f1f;margin:0 0 6px;line-height:1.5;}"
-        ".item-supporting{color:#444;margin:4px 0;line-height:1.6;}"
-        ".item-main .map-link{margin:2px 12px 4px 0;}"
-        ".map-link{white-space:normal;}"
-        ".generated-date-footer{max-width:960px;margin:32px auto 8px;padding:16px;color:#666;text-align:center;font-size:.9rem;}"
-        "@media(max-width:640px){.itinerary-item{grid-template-columns:1fr;row-gap:8px;}.itinerary-item>.time,.itinerary-item>.title,.itinerary-item>.desc,.itinerary-item>.map-link,.item-icon,.item-main{grid-column:1;grid-row:auto;}.item-icon{width:auto;}}"
+        ":root{--md-sys-color-primary:#6750A4;--md-sys-color-on-primary:#FFFFFF;--md-sys-color-primary-container:#E8DEF8;--md-sys-color-on-primary-container:#21005D;}"
+        "body{font-family:'Roboto','Noto Sans TC',sans-serif;background-color:#f4f5f7;margin:0;padding:16px;}"
+        ".container{max-width:600px;width:100%;margin:0 auto;}"
+        ".banner{background-color:var(--md-sys-color-primary);color:var(--md-sys-color-on-primary);padding:32px 22px;border-radius:16px;margin-bottom:24px;text-align:center;box-shadow:0 6px 16px rgba(103,80,164,.22);}"
+        ".banner h1{margin:0;font-size:28px;font-weight:700;letter-spacing:.5px;line-height:1.35;}.banner p{margin:10px 0 0;opacity:.9;font-size:15px;}"
+        ".day-card{background:#fff;border-radius:20px;padding:22px;margin-bottom:24px;box-shadow:0 4px 16px rgba(0,0,0,.04);border:1px solid rgba(0,0,0,.02);}"
+        ".day-badge{display:inline-flex;align-items:center;background:var(--md-sys-color-primary-container);color:var(--md-sys-color-on-primary-container);padding:6px 16px;border-radius:24px;font-weight:700;font-size:14px;margin-bottom:20px;gap:6px;}"
+        ".day-badge .material-icons{font-size:18px;}"
+        ".itinerary-list{display:block;margin-top:0;}"
+        ".timeline-item{border-left:3px solid var(--md-sys-color-primary-container);padding-left:20px;margin-bottom:24px;position:relative;writing-mode:horizontal-tb;word-break:normal;overflow-wrap:anywhere;}"
+        ".timeline-item:last-child{margin-bottom:0;}"
+        ".time-tag{font-weight:700;color:var(--md-sys-color-primary);font-size:14px;margin:0 0 8px;line-height:1.45;}"
+        ".item-title{font-size:17px;font-weight:700;display:flex;align-items:center;color:#1C1B1F;gap:6px;line-height:1.5;margin:0;}"
+        ".item-title .material-icons,.item-icon .material-icons{font-size:20px;color:var(--md-sys-color-primary);}"
+        ".item-desc,.item-supporting{font-size:14px;color:#49454F;margin-top:6px;line-height:1.55;}"
+        ".item-main{min-width:0;line-height:1.6;}"
+        ".map-link{color:var(--md-sys-color-primary);text-decoration:none;font-weight:700;font-size:13px;display:inline-flex;align-items:center;margin-top:8px;padding:4px 0;gap:4px;white-space:normal;}"
+        ".map-link:hover{opacity:.7;}.map-link .material-icons{font-size:16px;}"
+        ".generated-date-footer{max-width:600px;margin:32px auto 8px;padding:16px;color:#666;text-align:center;font-size:.9rem;line-height:1.6;}"
+        "@media(max-width:640px){body{padding:12px;}.banner{padding:26px 16px;}.banner h1{font-size:24px;}.day-card{border-radius:18px;padding:20px;}.timeline-item{padding-left:16px;}}"
         "</style>"
     )
     return re.sub(r"(</head>)", css + r"\1", html_content, count=1, flags=re.IGNORECASE)
@@ -398,15 +449,15 @@ def validate_html_is_safe(html_content: str):
         validator.errors.append("HTML 缺少 <head> 標籤")
     if not validator.has_body:
         validator.errors.append("HTML 缺少 <body> 標籤")
-    if not validator.has_material_script:
-        validator.errors.append("HTML 缺少 Material Web script")
-
     if validator.errors:
         raise ValueError("；".join(validator.errors))
 
 def sanitize_generated_html(raw_content: str) -> str:
     html_content = extract_html(raw_content)
+    html_content = remove_disallowed_scripts(html_content)
     html_content = normalize_material_lists(html_content)
+    html_content = normalize_itinerary_structure(html_content)
+    html_content = normalize_day_badge_text(html_content)
     html_content = ensure_map_links_open_new_tab(html_content)
     html_content = inject_generated_date_footer(html_content)
     html_content = inject_itinerary_fallback_css(html_content)
@@ -598,6 +649,10 @@ def process_user_text(user_id: str, target_id: str, user_message: str, send_resp
     # --- 階段 B：常規對話（每一次回答後面都加上提示詞） ---
     # 讓 Gemini 正常回答使用者的景點調整需求
     ai_response = ask_gemini_travel_agent(user_id, user_message)
+    if looks_like_html_document(ai_response):
+        logger.warning("Gemini 在一般對話中回傳 HTML，已阻擋 LINE 輸出。")
+        send_response("我已準備好行程資料。若要產生網頁，請輸入「生成網頁」。")
+        return
 
     # 【核心優化】：用 Python 在後端動態黏上引導提示字串
     cta_hint = (
@@ -641,8 +696,53 @@ def ask_gemini_travel_agent(user_id: str, prompt: str) -> str:
         logger.exception(f"Gemini Error: {e}")
         return "系統打結，請輸入『新行程』重新試試看！"
 
+def looks_like_html_document(text: str) -> bool:
+    return bool(re.search(r"<!doctype\s+html|<html\b|</html>|<body\b|</body>", text or "", flags=re.IGNORECASE))
+
+def generate_itinerary_html(user_id: str) -> str:
+    try:
+        prompt = (
+            "請根據目前對話中已討論好的最終行程，立刻依照 Material 3 格式規範輸出完整 HTML 網頁原始碼。"
+            "這段 HTML 只供後端部署使用，不要加入任何說明文字、摘要、Markdown 或給使用者看的聊天內容。"
+        )
+        user_lock = get_user_session_lock(user_id)
+        with user_lock:
+            with session_registry_lock:
+                session = user_chat_sessions.get(user_id)
+            if session:
+                temp_chat = gemini_client.chats.create(
+                    model='gemini-3.1-flash-lite',
+                    config=types.GenerateContentConfig(
+                        system_instruction=TRAVEL_SYSTEM_INSTRUCTION,
+                        temperature=0.2,
+                        tools=[types.Tool(google_search=types.GoogleSearch())]
+                    ),
+                    history=session["chat"].get_history(curated=True)
+                )
+                response = temp_chat.send_message(prompt)
+                session["updated_at"] = time.time()
+                return response.text if response.text else ""
+
+            response = gemini_client.models.generate_content(
+                model='gemini-3.1-flash-lite',
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    system_instruction=TRAVEL_SYSTEM_INSTRUCTION,
+                    temperature=0.2,
+                    tools=[types.Tool(google_search=types.GoogleSearch())]
+                )
+            )
+            return response.text if response.text else ""
+    except Exception as e:
+        logger.exception(f"Gemini HTML generation error: {e}")
+        return ""
+
 def generate_and_push_itinerary_page(user_id: str, target_id: str):
-    raw_html = ask_gemini_travel_agent(user_id, "請將我們目前討論好的最終行程，立刻依照 Material 3 格式規範輸出為完整的 HTML 網頁原始碼。")
+    raw_html = generate_itinerary_html(user_id)
+    if not raw_html:
+        send_line_push(target_id, "目前沒有足夠的行程內容可以生成網頁，請先告訴我目的地、天數與偏好。")
+        return
+
     try:
         html_code = sanitize_generated_html(raw_html)
     except ValueError as e:
