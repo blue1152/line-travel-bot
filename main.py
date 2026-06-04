@@ -6,6 +6,7 @@ import zipfile
 import logging
 import threading
 import time
+from html import unescape
 from html.parser import HTMLParser
 import requests
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
@@ -89,7 +90,7 @@ TRAVEL_SYSTEM_INSTRUCTION = (
     "   * 【交通】：必須使用 `<span class='material-icons' slot='start'>directions_car</span>` 或 `train` 等圖標，明確註明景點之間的移動方式（如：步行 10 分鐘或搭乘捷運板南線）。\n"
     "   * 【美食】：必須使用 `<span class='material-icons' slot='start'>restaurant</span>` 圖標標註周邊推薦的午晚餐或下午茶，且『每一間餐廳』下方也必須附上對應的 Google 地圖搜尋 URL 連結，格式同上。\n\n"
     "3. 【配色與純文字 HTML 規範】：\n"
-    "   主色調使用 Material 3 沉穩的深藍/深紫（Primary: `#6750A4`），背景為淺灰。不要將 HTML 包裹在 Markdown 的 ```html 區塊內，直接輸出純文字的 HTML 程式碼即可。"
+    "   主色調使用 Material 3 沉穩的深藍/深紫（Primary: `#6750A4`），背景為淺灰。不要將 HTML 包裹在 Markdown 的 ```html 區塊內，不要放在 <pre> 標籤內，不要輸出 escaped HTML（例如 &lt;html&gt;），直接輸出可由瀏覽器渲染的完整 HTML 原始碼即可。"
 )
 
 CSP_META_TAG = (
@@ -194,12 +195,44 @@ class StrictTravelHtmlValidator(HTMLParser):
         if not value_lower.startswith("https://"):
             self.errors.append(f"URL 屬性 {name} 必須使用 https")
 
-def extract_html(raw_content: str) -> str:
-    content = (raw_content or "").strip()
+def strip_markdown_fence(content: str) -> str:
     fence_match = re.search(r"```(?:html)?\s*(.*?)```", content, flags=re.IGNORECASE | re.DOTALL)
     if fence_match:
-        content = fence_match.group(1).strip()
+        return fence_match.group(1).strip()
+    return content.strip()
 
+def strip_wrapping_quotes(content: str) -> str:
+    stripped_content = content.strip()
+    if len(stripped_content) >= 2 and stripped_content[0] == stripped_content[-1] and stripped_content[0] in {"'", '"'}:
+        return stripped_content[1:-1].strip()
+    return stripped_content
+
+def unwrap_pre_html(content: str) -> str:
+    pre_match = re.search(r"<pre\b[^>]*>(.*?)</pre>", content, flags=re.IGNORECASE | re.DOTALL)
+    if not pre_match:
+        return content
+
+    pre_content = pre_match.group(1).strip()
+    unescaped_pre_content = unescape(pre_content).strip()
+    if re.search(r"(?:<!doctype\s+html[^>]*>\s*)?<html\b", unescaped_pre_content, flags=re.IGNORECASE):
+        return unescaped_pre_content
+    return content
+
+def normalize_generated_html_text(raw_content: str) -> str:
+    content = (raw_content or "").strip()
+    for _ in range(3):
+        previous_content = content
+        content = strip_markdown_fence(content)
+        content = strip_wrapping_quotes(content)
+        content = unwrap_pre_html(content)
+        if not re.search(r"<html\b", content, flags=re.IGNORECASE):
+            content = unescape(content).strip()
+        if content == previous_content:
+            break
+    return content
+
+def extract_html(raw_content: str) -> str:
+    content = normalize_generated_html_text(raw_content)
     doc_match = re.search(r"(?:<!doctype\s+html[^>]*>\s*)?<html\b.*?</html>", content, flags=re.IGNORECASE | re.DOTALL)
     if not doc_match:
         raise ValueError("Gemini 回傳內容沒有完整的 <html> 文件")
@@ -231,6 +264,10 @@ def validate_html_is_safe(html_content: str):
     validator.feed(html_content)
     validator.close()
 
+    if len(re.findall(r"<html\b", html_content, flags=re.IGNORECASE)) != 1:
+        validator.errors.append("HTML 必須只有一個 <html> 標籤")
+    if re.search(r"<pre\b", html_content, flags=re.IGNORECASE):
+        validator.errors.append("HTML 不允許殘留 <pre> 包裝")
     if not validator.has_html:
         validator.errors.append("HTML 缺少 <html> 標籤")
     if not validator.has_head:
@@ -507,6 +544,13 @@ def deploy_html_to_netlify(html_content: str) -> str:
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "a", zipfile.ZIP_DEFLATED, False) as zip_file:
             zip_file.writestr("index.html", html_content)
+            zip_file.writestr(
+                "_headers",
+                "/\n"
+                "  Content-Type: text/html; charset=UTF-8\n"
+                "/index.html\n"
+                "  Content-Type: text/html; charset=UTF-8\n"
+            )
         
         zip_buffer.seek(0)
         zip_binary_data = zip_buffer.getvalue()
