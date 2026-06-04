@@ -6,7 +6,7 @@ import zipfile
 import logging
 import threading
 import time
-from html import unescape
+from html import escape, unescape
 from html.parser import HTMLParser
 import requests
 from fastapi import FastAPI, Request, HTTPException, BackgroundTasks
@@ -84,8 +84,8 @@ TRAVEL_SYSTEM_INSTRUCTION = (
     "     .map-link span { font-size: 16px; margin-right: 4px; }\n"
     "   </style>\n\n"
     "2. 【四大元素與 Google 地圖 URL 的結構約束】：\n"
-    "   在生成的行程網頁中，每一天的行程必須條理分明地包含以下內容，並利用 `<md-list>` 與 `<md-list-item>` 來排版：\n"
-    "   * 【行程/時間軸】：利用 `<md-list-item>` 並設定標題為時間（如 09:00 - 11:00）。\n"
+    "   在生成的行程網頁中，每一天的行程必須條理分明地包含以下內容。不要使用 `<md-list>` 或 `<md-list-item>`，請改用穩定的普通 HTML，例如 `<div class='itinerary-list'>` 與 `<div class='itinerary-item'>`，並把時間、標題、說明、地圖連結都放在可直接顯示的元素中。\n"
+    "   * 【行程/時間軸】：每個行程項目要有明確時間標題（如 09:00 - 11:00）。\n"
     "   * 【景點】：必須使用 Material Icon `<span class='material-icons' slot='start'>place</span>` 標註，且『每一個景點』下方都必須附上對應的 Google 地圖搜尋 URL，連結格式嚴格限制為：<a class='map-link' href='https://www.google.com/maps/search/?api=1&query=Time+Out+Market+Lisboa2'><span class='material-icons'>map</span>查看地圖</a>（請將店名與區域正確編碼）。\n"
     "   * 【交通】：必須使用 `<span class='material-icons' slot='start'>directions_car</span>` 或 `train` 等圖標，明確註明景點之間的移動方式（如：步行 10 分鐘或搭乘捷運板南線）。\n"
     "   * 【美食】：必須使用 `<span class='material-icons' slot='start'>restaurant</span>` 圖標標註周邊推薦的午晚餐或下午茶，且『每一間餐廳』下方也必須附上對應的 Google 地圖搜尋 URL 連結，格式同上。\n\n"
@@ -259,6 +259,85 @@ def inject_csp(html_content: str) -> str:
         flags=re.IGNORECASE,
     )
 
+def extract_attr(attrs: str, name: str) -> str:
+    attr_match = re.search(rf"\b{name}\s*=\s*(['\"])(.*?)\1", attrs, flags=re.IGNORECASE | re.DOTALL)
+    return unescape(attr_match.group(2).strip()) if attr_match else ""
+
+def remove_slot_attr(tag_html: str) -> str:
+    return re.sub(r"\s+slot\s*=\s*(['\"]).*?\1", "", tag_html, flags=re.IGNORECASE | re.DOTALL)
+
+def convert_md_list_item(match) -> str:
+    attrs = match.group(1)
+    inner_html = match.group(2)
+
+    headline = extract_attr(attrs, "headline")
+    headline_match = re.search(
+        r"<div\b[^>]*slot\s*=\s*(['\"])headline\1[^>]*>(.*?)</div>",
+        inner_html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if headline_match:
+        headline = unescape(re.sub(r"<[^>]+>", "", headline_match.group(2)).strip()) or headline
+
+    icon_html = ""
+    icon_match = re.search(
+        r"<span\b[^>]*slot\s*=\s*(['\"])start\1[^>]*>.*?</span>",
+        inner_html,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if icon_match:
+        icon_html = remove_slot_attr(icon_match.group(0))
+
+    supporting_blocks = [
+        block.strip()
+        for _, block in re.findall(
+            r"<div\b[^>]*slot\s*=\s*(['\"])supporting-text\1[^>]*>(.*?)</div>",
+            inner_html,
+            flags=re.IGNORECASE | re.DOTALL,
+        )
+    ]
+    supporting_html = "".join(f"<div class='item-supporting'>{block}</div>" for block in supporting_blocks)
+
+    remainder = inner_html
+    remainder = re.sub(r"<span\b[^>]*slot\s*=\s*(['\"])start\1[^>]*>.*?</span>", "", remainder, flags=re.IGNORECASE | re.DOTALL)
+    remainder = re.sub(r"<div\b[^>]*slot\s*=\s*(['\"])(?:headline|supporting-text)\1[^>]*>.*?</div>", "", remainder, flags=re.IGNORECASE | re.DOTALL)
+    remainder = remainder.strip()
+
+    title_html = f"<div class='item-title'>{escape(headline)}</div>" if headline else ""
+    return (
+        "<div class='itinerary-item'>"
+        f"<div class='item-icon'>{icon_html}</div>"
+        "<div class='item-main'>"
+        f"{title_html}{supporting_html}{remainder}"
+        "</div>"
+        "</div>"
+    )
+
+def normalize_material_lists(html_content: str) -> str:
+    html_content = re.sub(
+        r"<md-list-item\b([^>]*)>(.*?)</md-list-item>",
+        convert_md_list_item,
+        html_content,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    html_content = re.sub(r"<md-list(?=[\s>])[^>]*>", "<div class='itinerary-list'>", html_content, flags=re.IGNORECASE)
+    return re.sub(r"</md-list>", "</div>", html_content, flags=re.IGNORECASE)
+
+def inject_itinerary_fallback_css(html_content: str) -> str:
+    css = (
+        "<style>"
+        ".itinerary-list{display:flex;flex-direction:column;gap:12px;margin-top:12px;}"
+        ".itinerary-item{display:grid;grid-template-columns:32px minmax(0,1fr);gap:12px;align-items:start;padding:12px 0;border-bottom:1px solid rgba(0,0,0,.08);}"
+        ".itinerary-item:last-child{border-bottom:0;}"
+        ".item-icon .material-icons{font-size:24px;color:#6750A4;line-height:1;}"
+        ".item-title{font-weight:700;color:#1f1f1f;margin-bottom:6px;line-height:1.5;}"
+        ".item-supporting{color:#444;margin:4px 0;line-height:1.6;}"
+        ".item-main{min-width:0;line-height:1.6;}"
+        ".item-main .map-link{margin-right:12px;margin-bottom:4px;}"
+        "</style>"
+    )
+    return re.sub(r"(</head>)", css + r"\1", html_content, count=1, flags=re.IGNORECASE)
+
 def validate_html_is_safe(html_content: str):
     validator = StrictTravelHtmlValidator()
     validator.feed(html_content)
@@ -268,6 +347,8 @@ def validate_html_is_safe(html_content: str):
         validator.errors.append("HTML 必須只有一個 <html> 標籤")
     if re.search(r"<pre\b", html_content, flags=re.IGNORECASE):
         validator.errors.append("HTML 不允許殘留 <pre> 包裝")
+    if re.search(r"</?md-list(?=[\s>])", html_content, flags=re.IGNORECASE):
+        validator.errors.append("HTML 不允許殘留 Material list 元件")
     if not validator.has_html:
         validator.errors.append("HTML 缺少 <html> 標籤")
     if not validator.has_head:
@@ -282,6 +363,8 @@ def validate_html_is_safe(html_content: str):
 
 def sanitize_generated_html(raw_content: str) -> str:
     html_content = extract_html(raw_content)
+    html_content = normalize_material_lists(html_content)
+    html_content = inject_itinerary_fallback_css(html_content)
     html_content = inject_csp(html_content)
     validate_html_is_safe(html_content)
     return html_content
