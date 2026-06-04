@@ -72,6 +72,10 @@ TRAVEL_SYSTEM_INSTRUCTION = (
     "請依據使用者輸入的目的地與天數，規劃出兼具流暢度與深度體驗的旅遊行程。\n\n"
     "【LINE 對話回覆規範】：\n"
     "一般對話請盡量精簡，優先給重點、條列與可執行建議。不要使用 emoji 或顏文字。\n\n"
+    "一般旅遊行程或行程調整回覆必須嚴格使用下列欄位格式，欄位名稱不可改寫、不可省略、不可用同義詞替代：\n"
+    "交通提示：<已知交通資訊；如果使用者沒有提供、尚未決定，或目前對話資訊不足，固定寫「未定」>\n"
+    "住宿：<已知住宿資訊；如果使用者沒有提供、尚未決定，或目前對話資訊不足，固定寫「未定」>\n"
+    "不要輸出「交通」、「交通方式」、「住哪裡」、「飯店」等替代欄位名稱。\n\n"
     "【最終網頁定稿 HTML 生成規範】：\n"
     "當使用者輸入『生成網頁』或『確認行程』時，代表這是最終定稿。HTML 原始碼只供後端部署使用，不要在一般 LINE 對話中解釋或展示 HTML。你必須將這幾天討論好的完整行程，『完全轉化為標準的 HTML 原始碼』回傳，不要使用 emoji 或顏文字，並嚴格遵循以下 Google 官方 Material 3 視覺美學規範：\n\n"
     "1. 【引入 Material 3 設計元件庫與 Material Icons】：\n"
@@ -97,9 +101,10 @@ TRAVEL_SYSTEM_INSTRUCTION = (
     "2. 【標題與內容結構】：\n"
     "   網頁最上方必須有 `<div class='banner'>`。banner 的 `<h1>` 格式為「Gemini 自己發想的 4-8 字詩意主題 + ・ + 行程氣質短句」，例如「洄瀾山海・慢活時光」。banner 的 `<p>` 必須包含使用者提到的地點與時間，例如「花蓮 3 天 2 夜深度自駕提案」。\n"
     "   每一天使用 `<div class='day-card'>`，開頭用 `<div class='day-badge'><span class='material-icons'>calendar_today</span>第一天：Gemini 發想的當日主題</div>`。day badge 文字必須固定為「第幾天：當日主題」，不要使用 DAY 1。\n"
-    "   每一天內容固定輸出三類區塊，順序為：時間軸、交通提示、美食推薦。每個區塊都用 `<div class='timeline-item'>`，內含 `<div class='time-tag'>`、`<div class='item-title'><span class='material-icons'>...</span>標題</div>`、`<div class='item-desc'>文字敘述</div>`。\n"
+    "   每一天內容固定輸出四類區塊，順序為：時間軸、交通提示、住宿、美食推薦。每個區塊都用 `<div class='timeline-item'>`，內含 `<div class='time-tag'>`、`<div class='item-title'><span class='material-icons'>...</span>標題</div>`、`<div class='item-desc'>文字敘述</div>`。\n"
     "   * 【時間軸】：`time-tag` 放明確時間（如 10:00 - 12:00），`item-title` 放景點/活動標題，`item-desc` 放體驗描述。\n"
-    "   * 【交通提示】：`time-tag` 寫「交通提示」，`item-title` 放交通方式標題（如 自駕 / 租車前往），`item-desc` 放路線與時間。\n"
+    "   * 【交通提示】：`time-tag` 寫「交通提示」，`item-title` 放交通方式標題（如 自駕 / 租車前往），`item-desc` 放路線與時間；如果資訊不足或尚未定案，`item-title` 與 `item-desc` 固定寫「未定」。\n"
+    "   * 【住宿】：`time-tag` 寫「住宿」，`item-title` 放住宿區域或飯店名稱，`item-desc` 放入住建議；如果使用者沒有提供或尚未定案，`item-title` 與 `item-desc` 固定寫「未定」。\n"
     "   * 【美食推薦】：`time-tag` 寫「美食推薦」，`item-title` 放餐廳/小吃標題，`item-desc` 放推薦原因。\n"
     "   景點與美食推薦下方必須附上 Google 地圖搜尋 URL，連結格式嚴格限制為：<a class='map-link' target='_blank' rel='noopener noreferrer' href='https://www.google.com/maps/search/?api=1&query=Time+Out+Market+Lisboa2'><span class='material-icons'>map</span>查看地圖導航</a>（請將店名與區域正確編碼）。\n"
     "   不要使用 `<md-list>` 或 `<md-list-item>`。\n\n"
@@ -539,6 +544,17 @@ GENERATE_COMMANDS = {"生成網頁", "確認行程", "打包網頁"}
 GENERATE_NEW_PAGE_COMMANDS = {"生成新網頁"}
 UPDATE_EXISTING_PAGE_COMMAND = "修改舊網頁"
 DEDUP_TTL_SECONDS = 600
+COLD_START_WAITING_MESSAGE = (
+    "系統剛從 Render 休眠狀態喚醒，請稍等一下。"
+    "我會在喚醒完成後接著處理你剛剛那則訊息，完成後直接回傳結果。"
+)
+LINE_REPLY_FORMAT_INSTRUCTION = (
+    "回覆格式硬性規則：\n"
+    "如果這次回覆包含旅遊行程、行程調整、景點安排、天數安排或旅遊建議，"
+    "必須逐字包含以下兩個欄位名稱，且不可用同義詞替代：\n"
+    "交通提示：<已知交通資訊；若使用者沒有提供或尚未定案，寫「未定」>\n"
+    "住宿：<已知住宿資訊；若使用者沒有提供或尚未定案，寫「未定」>"
+)
 
 def is_update_existing_page_command(text: str) -> bool:
     return text.strip().startswith(UPDATE_EXISTING_PAGE_COMMAND)
@@ -649,12 +665,20 @@ def handle_text_message(event: MessageEvent):
         return
 
     if should_delay_for_cold_start():
-        send_line_reply(reply_token, "休息中, 請稍等")
-        time.sleep(COLD_START_RETRY_DELAY_SECONDS)
-        process_user_text(user_id, target_id, user_message, lambda text: send_line_push(target_id, text))
+        send_line_reply(reply_token, COLD_START_WAITING_MESSAGE)
+        schedule_cold_start_processing(user_id, target_id, user_message)
         return
 
     process_user_text(user_id, target_id, user_message, lambda text: send_line_reply(reply_token, text))
+
+def schedule_cold_start_processing(user_id: str, target_id: str, user_message: str):
+    delayed_processor = threading.Timer(
+        COLD_START_RETRY_DELAY_SECONDS,
+        process_user_text,
+        args=(user_id, target_id, user_message, lambda text: send_line_push(target_id, text)),
+    )
+    delayed_processor.daemon = True
+    delayed_processor.start()
 
 def process_user_text(user_id: str, target_id: str, user_message: str, send_response):
     # 重置記憶指令
@@ -666,7 +690,7 @@ def process_user_text(user_id: str, target_id: str, user_message: str, send_resp
     # --- 階段 A：使用者決定定稿，生成網頁 ---
     if user_message.strip() in GENERATE_NEW_PAGE_COMMANDS:
         logger.info(f"使用者 {user_id} 觸發 Material 3 新網頁定稿生成...")
-        send_response("收到，我正在整理行程並生成新的 Netlify 網頁。完成後會直接把連結傳給你。")
+        send_response("我正在整理行程並生成新的 Netlify 網頁。完成後會直接把連結傳給你。")
         generate_and_push_itinerary_page(user_id, target_id, force_new_site=True)
         return
 
@@ -677,13 +701,13 @@ def process_user_text(user_id: str, target_id: str, user_message: str, send_resp
             return
 
         logger.info(f"使用者 {user_id} 觸發既有 Netlify 網頁更新: {existing_page_url}")
-        send_response("收到，我會用這次行程內容覆蓋你貼的既有 Netlify 頁面。完成後會把更新後連結傳給你。")
+        send_response("我會用這次行程內容覆蓋你貼的既有 Netlify 頁面。完成後會把更新後連結傳給你。")
         generate_and_push_itinerary_page(user_id, target_id, existing_page_url=existing_page_url)
         return
 
     if user_message.strip() in GENERATE_COMMANDS:
         logger.info(f"使用者 {user_id} 觸發 Material 3 網頁定稿生成...")
-        send_response("收到，我正在整理行程並生成網頁。完成後會直接把 Netlify 連結傳給你。")
+        send_response("我正在整理行程並生成網頁。完成後會直接把 Netlify 連結傳給你。")
         generate_and_push_itinerary_page(user_id, target_id)
         return
 
@@ -704,7 +728,7 @@ def process_user_text(user_id: str, target_id: str, user_message: str, send_resp
     )
 
     # 組裝最終回傳給 Line 的訊息
-    final_line_text = ai_response + cta_hint
+    final_line_text = ensure_required_travel_fields(ai_response) + cta_hint
     send_response(final_line_text)
 
 def ask_gemini_travel_agent(user_id: str, prompt: str) -> str:
@@ -730,7 +754,8 @@ def ask_gemini_travel_agent(user_id: str, prompt: str) -> str:
                 with session_registry_lock:
                     user_chat_sessions[user_id] = session
 
-            response = session["chat"].send_message(prompt)
+            formatted_prompt = f"{prompt}\n\n{LINE_REPLY_FORMAT_INSTRUCTION}"
+            response = session["chat"].send_message(formatted_prompt)
             session["updated_at"] = time.time()
             return response.text if response.text else ""
     except Exception as e:
@@ -739,6 +764,19 @@ def ask_gemini_travel_agent(user_id: str, prompt: str) -> str:
 
 def looks_like_html_document(text: str) -> bool:
     return bool(re.search(r"<!doctype\s+html|<html\b|</html>|<body\b|</body>", text or "", flags=re.IGNORECASE))
+
+def ensure_required_travel_fields(text: str) -> str:
+    required_fields = ("交通提示", "住宿")
+    missing_fields = [
+        field
+        for field in required_fields
+        if not re.search(rf"(^|\n)\s*(?:[*\-]\s*)?(?:【)?{re.escape(field)}(?:】)?\s*[:：]", text or "")
+    ]
+    if not missing_fields:
+        return text
+
+    fallback_lines = [f"{field}：未定" for field in missing_fields]
+    return (text or "").rstrip() + "\n\n" + "\n".join(fallback_lines)
 
 def generate_itinerary_html(user_id: str) -> str:
     try:
