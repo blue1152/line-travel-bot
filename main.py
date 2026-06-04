@@ -1,6 +1,7 @@
 import os
 import io
 import re
+import uuid
 import zipfile
 import logging
 import threading
@@ -33,6 +34,8 @@ LINE_CHANNEL_ACCESS_TOKEN = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 NETLIFY_AUTH_TOKEN = os.getenv("NETLIFY_AUTH_TOKEN") 
 NETLIFY_SITE_ID = os.getenv("NETLIFY_SITE_ID")
+NETLIFY_ACCOUNT_SLUG = os.getenv("NETLIFY_ACCOUNT_SLUG", "")
+NETLIFY_DEPLOY_POLL_SECONDS = int(os.getenv("NETLIFY_DEPLOY_POLL_SECONDS", "30"))
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "3600"))
 LINE_MAX_MESSAGE_LENGTH = 5000
 LINE_MAX_MESSAGES = 5
@@ -508,27 +511,105 @@ def deploy_html_to_netlify(html_content: str) -> str:
         zip_buffer.seek(0)
         zip_binary_data = zip_buffer.getvalue()
 
-        headers = {
-            "Authorization": f"Bearer {NETLIFY_AUTH_TOKEN}",
-            "Content-Type": "application/zip"
-        }
-
         logger.info("正在發送 M3 HTML 至 Netlify API...")
-        if NETLIFY_SITE_ID:
-            url = f"https://api.netlify.com/api/v1/sites/{NETLIFY_SITE_ID}/deploys"
-        else:
-            url = "https://api.netlify.com/api/v1/sites"
-
-        response = requests.post(url, headers=headers, data=zip_binary_data, timeout=15)
-        
-        if response.status_code in [200, 201]:
-            return response.json().get("ssl_url")
-        else:
-            logger.error(f"Netlify Error: {response.status_code} - {response.text}")
+        site_id = NETLIFY_SITE_ID or create_netlify_site()
+        if not site_id:
             return ""
+
+        deploy = create_netlify_zip_deploy(site_id, zip_binary_data)
+        if not deploy:
+            return ""
+
+        ready_deploy = wait_for_netlify_deploy_ready(deploy)
+        return get_netlify_public_url(ready_deploy or deploy)
     except Exception as e:
         logger.exception(f"deploy_html_to_netlify Exception: {e}")
         return ""
+
+def get_netlify_headers(content_type: str = "application/json") -> dict:
+    return {
+        "Authorization": f"Bearer {NETLIFY_AUTH_TOKEN}",
+        "Content-Type": content_type,
+        "User-Agent": "line-travel-bot"
+    }
+
+def create_netlify_site() -> str:
+    site_name = f"line-travel-{int(time.time())}-{uuid.uuid4().hex[:8]}"
+    if NETLIFY_ACCOUNT_SLUG:
+        url = f"https://api.netlify.com/api/v1/{NETLIFY_ACCOUNT_SLUG}/sites"
+    else:
+        url = "https://api.netlify.com/api/v1/sites"
+
+    response = requests.post(
+        url,
+        headers=get_netlify_headers(),
+        json={"name": site_name},
+        timeout=15,
+    )
+
+    if response.status_code not in [200, 201]:
+        logger.error(f"Netlify create site error: {response.status_code} - {response.text}")
+        return ""
+
+    site = response.json()
+    site_id = site.get("id")
+    if not site_id:
+        logger.error(f"Netlify create site response missing id: {site}")
+        return ""
+    return site_id
+
+def create_netlify_zip_deploy(site_id: str, zip_binary_data: bytes) -> dict:
+    url = f"https://api.netlify.com/api/v1/sites/{site_id}/deploys"
+    response = requests.post(
+        url,
+        headers=get_netlify_headers("application/zip"),
+        data=zip_binary_data,
+        timeout=30,
+    )
+
+    if response.status_code not in [200, 201]:
+        logger.error(f"Netlify deploy error: {response.status_code} - {response.text}")
+        return {}
+
+    return response.json()
+
+def wait_for_netlify_deploy_ready(deploy: dict) -> dict:
+    deploy_id = deploy.get("id")
+    if not deploy_id:
+        logger.warning(f"Netlify deploy response missing id: {deploy}")
+        return deploy
+
+    deadline = time.time() + NETLIFY_DEPLOY_POLL_SECONDS
+    while time.time() < deadline:
+        state = deploy.get("state")
+        if state == "ready":
+            return deploy
+        if state == "error":
+            logger.error(f"Netlify deploy failed: {deploy}")
+            return {}
+
+        time.sleep(2)
+        response = requests.get(
+            f"https://api.netlify.com/api/v1/deploys/{deploy_id}",
+            headers=get_netlify_headers(),
+            timeout=15,
+        )
+        if response.status_code != 200:
+            logger.error(f"Netlify deploy poll error: {response.status_code} - {response.text}")
+            return deploy
+        deploy = response.json()
+
+    logger.warning(f"Netlify deploy was not ready within {NETLIFY_DEPLOY_POLL_SECONDS}s: {deploy}")
+    return deploy
+
+def get_netlify_public_url(deploy: dict) -> str:
+    for key in ("ssl_url", "deploy_ssl_url", "url", "deploy_url"):
+        public_url = deploy.get(key)
+        if public_url:
+            return public_url.replace("http://", "https://", 1)
+
+    logger.error(f"Netlify response missing public URL: {deploy}")
+    return ""
 
 def send_line_reply(reply_token: str, text: str):
     try:
